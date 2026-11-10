@@ -1469,6 +1469,19 @@ function lgLogo(L,s){
 const formHTML=f=>f.map(x=>`<span class="fm ${x}" title="${x==='W'?'Win':x==='D'?'Draw':'Loss'}">${x}</span>`).join('');
 const scoreChip=m=>m.hg!=null?`<span class="score"><b>${m.hg}</b><i></i><b>${m.ag}</b></span>`:`<span class="score pending" aria-label="Not played">v</span>`;
 
+// ===== default world (optional): an embedded <script id="default-world"> or a default-world.json next to this page
+let DEFAULT_WORLD=null;
+async function fetchDefault(){
+  try{
+    const el=document.getElementById('default-world');
+    if(el&&el.textContent.trim()){const j=JSON.parse(el.textContent);if(j&&Array.isArray(j.teams))return j;}
+  }catch(e){}
+  try{
+    if(!/^https?:/.test(location.protocol))return null;
+    const r=await fetch('default-world.json',{cache:'no-cache'});if(!r.ok)return null;
+    const j=await r.json();return j&&Array.isArray(j.teams)?j:null;
+  }catch(e){return null;}
+}
 // ===== persistence (IndexedDB, falls back to memory)
 let dbp=null;
 function openDB(){
@@ -1722,7 +1735,7 @@ function viewData(){
   <div class="bigcard"><h3>Player names</h3><p class="hint">World uses ${Engine.NAME_REGIONS.length} regional styles, chosen per nation (edit a nation to pick one). Classic uses 5 broad styles. This applies to players generated from now on.</p><div class="row"><select id="nameMode" aria-label="Name pool" style="width:auto"><option value="world" ${(S.settings&&S.settings.names)!=='classic'?'selected':''}>World (${Engine.NAME_REGIONS.length} styles)</option><option value="classic" ${(S.settings&&S.settings.names)==='classic'?'selected':''}>Classic (5 styles)</option></select><button class="btn" data-action="rename-all">Rename every player</button></div></div>
   <div class="bigcard"><h3>Season year</h3><p class="hint">The label for the current season. It moves forward by one each time you start a new season.</p><div class="row"><input type="number" id="yearIn" value="${S.year}" style="width:110px" aria-label="Season start year"><button class="btn" data-action="set-year">Set year</button></div></div>
   <div class="bigcard"><h3>Delete season data</h3><p class="hint">Wipes everything that happened in the seasons: league tables and champions, results, cup editions and winners, awards, transfer log and player career stats. Teams, players, leagues, cups and nations stay exactly as they are, and every league starts a fresh season.</p><div class="row"><button class="btn danger" data-action="clear-seasons">Delete season data</button></div></div>
-  <div class="bigcard"><h3>Start over</h3><p class="hint">Load the fictional demo world, or clear everything and build your own from nothing.</p><div class="row"><button class="btn" data-action="load-demo">Load demo world</button><button class="btn danger" data-action="wipe">Clear everything</button></div></div></div>`;
+  <div class="bigcard"><h3>Start over</h3><p class="hint">Load the fictional demo world, or clear everything and build your own from nothing.</p><div class="row">${DEFAULT_WORLD?'<button class="btn" data-action="load-default">Load default world</button>':''}<button class="btn" data-action="load-demo">Load demo world</button><button class="btn danger" data-action="wipe">Clear everything</button></div></div></div>`;
 }
 
 // ===== actions
@@ -2035,10 +2048,25 @@ A['load-demo']=async()=>{
   if(S.teams.length||S.leagues.length||S.nations.length){const ok=await confirmDialog({title:'Replace your world?',body:'This replaces everything with the demo world. Export first if you want to keep what you have.',ok:'Load demo',danger:true});if(!ok)return;}
   S=Engine.demoWorld();ui.leagueId=null;ui.round=null;ui.tab='play';commit();toast('Demo world loaded');
 };
+A['load-default']=async()=>{
+  if(!DEFAULT_WORLD)return;
+  if(S.teams.length||S.leagues.length||S.nations.length){const ok=await confirmDialog({title:'Replace your world?',body:'This replaces everything with the default world. Export first if you want to keep what you have.',ok:'Load default',danger:true});if(!ok)return;}
+  S=normalize(JSON.parse(JSON.stringify(DEFAULT_WORLD)));S.demo=false;ui.leagueId=null;ui.round=null;ui.tab='play';commit();toast('Default world loaded');
+};
 A.wipe=async()=>{
   const ok=await confirmDialog({title:'Clear everything?',body:'All nations, leagues, teams, images and history are deleted from this browser. Export first if you might want them back.',ok:'Clear everything',danger:true});if(!ok)return;
   S={v:1,year:S.year,demo:false,nations:[],leagues:[],teams:[],players:[],log:[],awards:[],worldAwards:[],cups:[],settings:{budgets:true,autoWindow:true,names:'world'}};ui.leagueId=null;ui.round=null;ui.tab='play';commit();toast('World cleared');
 };
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2904,8 +2932,10 @@ document.addEventListener('change',e=>{
 // ===== boot
 (async function boot(){
   paintSave();
-  const saved=await loadSaved();
+  const [saved,def]=await Promise.all([loadSaved(),fetchDefault()]);
+  DEFAULT_WORLD=def;
   if(saved&&Array.isArray(saved.teams)){try{S=normalize(saved);S.demo=!!saved.demo;saveStatus=saveStatus==='memory'?'memory':'saved';}catch(e){S=null;}}
+  if(!S&&def){try{S=normalize(JSON.parse(JSON.stringify(def)));S.demo=false;if(saveStatus!=='memory')saveStatus='saving';saveSoon();}catch(e){S=null;}}
   if(!S){S=Engine.demoWorld();if(saveStatus!=='memory')saveStatus='saving';saveSoon();}
   Engine.syncSeasons(S);Engine.syncComps(S);
   render();
